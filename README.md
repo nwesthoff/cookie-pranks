@@ -57,6 +57,9 @@ prank/
 ├── cookie-wallpaper/
 │   ├── cookie-wallpaper.sh
 │   └── image.jpg
+├── slack-shoutout/
+│   ├── slack-shoutout.sh
+│   └── task-index.js
 └── sound-effects/
     ├── sound-effects.sh
     └── sounds/
@@ -110,6 +113,52 @@ Notes for the victim's Mac:
   first, then move.
 - Restoring quits `WallpaperAgent` so it rereads its configuration. It comes
   straight back on its own; the desktop flickers once.
+
+### `prank/slack-shoutout/`
+
+Registers a Claude scheduled task ("Task" in Claude Desktop / Claude Code)
+that fires every other day and posts a fresh, over-the-top shoutout to
+`#shoutouts` about leaving the computer unlocked — cookies owed. Claude writes
+new wording every time; nothing here contains the actual message text.
+
+```sh
+sh prank/slack-shoutout/slack-shoutout.sh              # schedule the shoutout
+sh prank/slack-shoutout/slack-shoutout.sh status       # where it is scheduled
+sh prank/slack-shoutout/slack-shoutout.sh installed    # exit 0 if scheduled, 1 if not
+sh prank/slack-shoutout/slack-shoutout.sh uninstall    # remove it everywhere it was added
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PRANK_TASK_ID` | `cookie-prank-shoutout` | Scheduled task id/slug |
+| `PRANK_TASK_NAME` | `Cookie Prank Shoutout` | Display name in the Tasks UI |
+| `PRANK_CRON` | `43 10 */2 * *` | 5-field cron, local time |
+| `PRANK_SLACK_CHANNEL_ID` | `C03NBRPBWV9` | Slack channel to post to (`#shoutouts`) |
+| `PRANK_SLACK_TOOL` | `mcp__claude_ai_Slack__slack_send_message` | Slack send-message tool name |
+| `PRANK_SESSIONS_DIR` | `~/Library/Application Support/Claude/claude-code-sessions` | Where Claude keeps its account/org directories |
+
+Notes for the victim's Mac:
+
+- Requires Claude Desktop or Claude Code to already have a Slack connection
+  and scheduled tasks enabled (on by default) — the installer registers the
+  task in every account/org directory it finds under `PRANK_SESSIONS_DIR`,
+  and errors out if there are none.
+- `*/2` on the day-of-month field means "every other day" drifts by one at
+  month boundaries (e.g. the 31st is followed by the 1st) — a minor, harmless
+  wobble in an otherwise unpredictable joke.
+- The install only ever appends its own task by id and only ever removes that
+  same id — other scheduled tasks in the same account are left untouched, and
+  a `scheduled-tasks.json` that doesn't parse as expected is skipped rather
+  than rewritten.
+- The Slack send-message tool is pre-approved on the task itself so the post
+  doesn't sit waiting on a permission prompt nobody is there to answer.
+- The first time a `scheduled-tasks.json` is touched, its prior contents are
+  saved to a sibling `.bak` — an empty `.bak` means there was no file there
+  yet. It is written exactly once (never overwritten by a later reinstall,
+  even after our own task has been added) and never restored automatically by
+  `uninstall` (a blind restore could delete a real task added in the
+  meantime); it is a manual safety net, not an undo button. Delete it
+  yourself once you're confident.
 
 ### `prank/sound-effects/`
 
@@ -168,4 +217,5 @@ yourself:
 ```sh
 sh prank/cookie-wallpaper/cookie-wallpaper.sh uninstall
 sh prank/sound-effects/sound-effects.sh uninstall
+sh prank/slack-shoutout/slack-shoutout.sh uninstall
 ```
