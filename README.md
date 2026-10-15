@@ -62,6 +62,7 @@ prank/
 │   └── task-index.js
 └── sound-effects/
     ├── sound-effects.sh
+    ├── speaker-play.swift
     └── sounds/
 ```
 
@@ -193,7 +194,8 @@ PRANK_COUNT=8 PRANK_START=08:30 PRANK_END=18:00 sh prank/sound-effects/sound-eff
 | `PRANK_START` | `09:15` | Start of the window, `HH:MM` |
 | `PRANK_END` | `17:15` | End of the window, `HH:MM` |
 | `PRANK_DAYS` | `1-5` | Cron day-of-week spec (`1-5` is Mon–Fri) |
-| `PRANK_VOLUME` | `1` | `afplay` volume; `1` is normal, higher is louder |
+| `PRANK_VOLUME` | `1` | Playback gain; `1` is normal, higher is louder |
+| `PRANK_SYSTEM_VOLUME` | `80` | Built-in speakers volume in percent while a sound plays |
 
 Plays are logged to `~/Library/Logs/cookie-prank.log`.
 
@@ -206,8 +208,17 @@ Notes for the victim's Mac:
   Disk Access — `~/src` or `/tmp` needs no such permission.
 - If `crontab` itself reports `Operation not permitted`, the terminal app needs
   Full Disk Access in System Settings → Privacy & Security.
-- Sound comes out of whatever output device is selected, at the system volume. A
-  muted Mac plays nothing, and `play` is the quickest way to find that out.
+- Sound comes out of the MacBook's built-in speakers even when headphones or
+  an external display are the selected output — their music keeps playing
+  where it was. The speakers are unmuted and set to `PRANK_SYSTEM_VOLUME` for
+  the length of the sound, then put back as they were.
+- Routing to the speakers needs a small Swift helper, compiled from
+  `speaker-play.swift` into `~/Library/Application Support/cookie-prank/` at
+  install (about half a minute) and removed by `uninstall`. That needs the
+  Xcode command line tools. Without them, on a Mac with no built-in speakers
+  (a Mac mini, say), or with headphones in the jack, the sound plays on the
+  selected output instead. That may be headphones, so its volume is never
+  touched; it is only unmuted for the sound and muted again after.
 
 ## Being a good sport
 

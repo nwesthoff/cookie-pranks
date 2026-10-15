@@ -14,7 +14,8 @@
 #   PRANK_START        start of the window, HH:MM        (default: 09:15)
 #   PRANK_END          end of the window, HH:MM          (default: 17:15)
 #   PRANK_DAYS         cron day-of-week spec             (default: 1-5, Mon-Fri)
-#   PRANK_VOLUME       afplay volume, 1 is normal        (default: 1)
+#   PRANK_VOLUME       playback gain, 1 is normal        (default: 1)
+#   PRANK_SYSTEM_VOLUME  built-in speakers volume while playing, %  (default: 80)
 
 set -eu
 
@@ -27,8 +28,11 @@ START=${PRANK_START:-09:15}
 END=${PRANK_END:-17:15}
 DAYS=${PRANK_DAYS:-1-5}
 VOLUME=${PRANK_VOLUME:-1}
+SYSTEM_VOLUME=${PRANK_SYSTEM_VOLUME:-80}
 
 LOG_FILE="$HOME/Library/Logs/cookie-prank.log"
+SPEAKER_PLAY_SOURCE="$SCRIPT_DIR/speaker-play.swift"
+SPEAKER_PLAY="$HOME/Library/Application Support/cookie-prank/speaker-play"
 BEGIN_MARK="# >>> cookie-prank sound-effects >>>"
 END_MARK="# <<< cookie-prank sound-effects <<<"
 
@@ -84,7 +88,33 @@ write_crontab() {
 	printf '%s\n' "$new_crontab" | crontab -
 }
 
+# Compiles the built-in speakers player when it is missing or stale. Fails
+# quietly without the developer tools: calling the swiftc stub would pop up an
+# install dialog on their screen and give the game away.
+build_speaker_play() {
+	[ -x "$SPEAKER_PLAY" ] && [ ! "$SPEAKER_PLAY_SOURCE" -nt "$SPEAKER_PLAY" ] && return 0
+	xcode-select -p >/dev/null 2>&1 || return 1
+	mkdir -p "$(dirname "$SPEAKER_PLAY")"
+	swiftc -O -o "$SPEAKER_PLAY.tmp" "$SPEAKER_PLAY_SOURCE" >/dev/null 2>&1 &&
+		mv "$SPEAKER_PLAY.tmp" "$SPEAKER_PLAY"
+}
+
+# Plays on the default output, unmuted but at its own volume: it may be
+# headphones, where forcing the volume up is not safe.
+play_on_default_output() {
+	was_muted=$(osascript -e 'output muted of (get volume settings)') || was_muted=""
+	osascript -e 'set volume without output muted' || true
+	status=0
+	afplay -v "$VOLUME" "$1" || status=$?
+	[ "$was_muted" = true ] && osascript -e 'set volume with output muted'
+	return "$status"
+}
+
 cmd_play() {
+	case $SYSTEM_VOLUME in
+	'' | *[!0-9]*) die "PRANK_SYSTEM_VOLUME must be a whole number from 0 to 100" ;;
+	esac
+	[ "$SYSTEM_VOLUME" -le 100 ] || die "PRANK_SYSTEM_VOLUME must be a whole number from 0 to 100"
 	sounds=$(list_sounds)
 	[ -n "$sounds" ] || die "no sound files in $SOUNDS_DIR — drop some .mp3 files in there"
 
@@ -93,7 +123,12 @@ cmd_play() {
 	sound=$(printf '%s\n' "$sounds" | sed -n "${pick}p")
 
 	printf '%s playing %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$sound"
-	afplay -v "$VOLUME" "$sound"
+	# The speakers player only fails before making a sound (no built-in speakers,
+	# unreadable file), so falling back never plays the sound twice.
+	if build_speaker_play && "$SPEAKER_PLAY" "$sound" "$SYSTEM_VOLUME" "$VOLUME"; then
+		return 0
+	fi
+	play_on_default_output "$sound"
 }
 
 cmd_install() {
@@ -107,6 +142,8 @@ cmd_install() {
 	[ "$window" -ge "$COUNT" ] || die "the window $START-$END is too short for $COUNT sounds"
 
 	mkdir -p "$(dirname "$LOG_FILE")"
+	speakers_note="on the built-in speakers"
+	build_speaker_play || speakers_note="(on the built-in speakers only; no developer tools to build the speakers player, so sounds play on the selected output at its own volume)"
 
 	# Split the window into equal blocks and pick a random minute inside each,
 	# so the times are unpredictable but never bunched up.
@@ -144,8 +181,8 @@ cmd_install() {
 		[ -n "${hour:-}" ] || continue
 		printf '  %02d:%02d\n' "$hour" "$minute"
 	done
-	printf 'Sounds come from %s (%s file(s)).\n' \
-		"$SOUNDS_DIR" "$(list_sounds | wc -l | tr -d ' ')"
+	printf 'Sounds come from %s (%s file(s)), at %s%% volume %s.\n' \
+		"$SOUNDS_DIR" "$(list_sounds | wc -l | tr -d ' ')" "$SYSTEM_VOLUME" "$speakers_note"
 	printf 'Times are re-rolled every morning at %02d:00.\n' "$((window_start / 60))"
 	printf 'Undo with: sh %s uninstall\n' "$0"
 }
@@ -157,14 +194,16 @@ shell_quote() {
 
 # The active settings as assignments, to prefix the reschedule command with.
 config_env() {
-	printf 'PRANK_SOUNDS_DIR=%s PRANK_COUNT=%s PRANK_START=%s PRANK_END=%s PRANK_DAYS=%s PRANK_VOLUME=%s' \
+	printf 'PRANK_SOUNDS_DIR=%s PRANK_COUNT=%s PRANK_START=%s PRANK_END=%s PRANK_DAYS=%s PRANK_VOLUME=%s PRANK_SYSTEM_VOLUME=%s' \
 		"$(shell_quote "$SOUNDS_DIR")" "$(shell_quote "$COUNT")" \
 		"$(shell_quote "$START")" "$(shell_quote "$END")" \
-		"$(shell_quote "$DAYS")" "$(shell_quote "$VOLUME")"
+		"$(shell_quote "$DAYS")" "$(shell_quote "$VOLUME")" \
+		"$(shell_quote "$SYSTEM_VOLUME")"
 }
 
 cmd_uninstall() {
 	foreign_crontab | write_crontab
+	rm -f "$SPEAKER_PLAY" "$SPEAKER_PLAY.tmp"
 	printf 'Removed the sound-effects schedule from your crontab.\n'
 }
 
